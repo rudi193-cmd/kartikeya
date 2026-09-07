@@ -36,7 +36,6 @@ rather than cutting one of their own — see `release-please-config.json`.
 
 ### Added
 
-* **sandbox:** say so when a config makes allow_db unable to gate ([d4a1897](https://github.com/willow-memory/kartikeya/commit/d4a18974299262f14636522fd03187d07a5b4b92))
 * **sandbox:** say so when a config makes allow_db unable to gate ([ca1fd84](https://github.com/willow-memory/kartikeya/commit/ca1fd845e9754c096f822e24e114f245ee6e9c63))
 
 ## [0.1.0](https://github.com/willow-memory/kartikeya/compare/v0.0.13...v0.1.0) (2026-09-07)
