@@ -91,7 +91,33 @@ def test_trust_overlay_includes_consent_policy_files(tmp_path, monkeypatch):
 
 # ── config resolution (spec §5) ────────────────────────────────────────────
 
-def test_vendored_default_config_loads():
+@pytest.fixture
+def vendored_default(monkeypatch, tmp_path):
+    """Resolve to the shipped default, not to whatever this host has configured.
+
+    `load_sandbox_config` walks $KART_SANDBOX_CONFIG -> $WILLOW_HOME/kart-sandbox.json
+    -> the vendored default. A test asserting a property *of the default* that does not
+    clear the first two is asserting it of the operator's policy instead. On a bare CI
+    runner both are absent so it passes; on a configured desk it fails, and reads as
+    "the suite is broken here" rather than "this test forgot to isolate".
+
+    The resolution tests below already do this inline. This is the same thing, named,
+    so the next test cannot forget it.
+    """
+    monkeypatch.delenv("KART_SANDBOX_CONFIG", raising=False)
+    monkeypatch.setenv("WILLOW_HOME", str(tmp_path))
+    return tmp_path
+
+
+def test_the_isolation_fixture_actually_reaches_the_vendored_default(vendored_default):
+    """Guard the guard. If resolution order changes, the fixture stops isolating
+    and the tests below quietly go back to asserting against host config."""
+    _cfg, source = sandbox.resolve_sandbox_config()
+    assert sandbox.is_vendored_default(source), \
+        f"expected the shipped default, resolved {source!r} — the fixture no longer isolates"
+
+
+def test_vendored_default_config_loads(vendored_default):
     cfg = sandbox.load_sandbox_config()
     # the product-neutral default always resolves and carries a mount policy
     assert cfg["env_prefixes"]
@@ -223,7 +249,7 @@ def test_task_allows_db_exact_line_match():
     assert sandbox.task_allows_db("echo # allow_db") is False
 
 
-def test_kart_env_default_excludes_pg_vars(monkeypatch):
+def test_kart_env_default_excludes_pg_vars(monkeypatch, vendored_default):
     monkeypatch.setenv("PGHOST", "/run/postgresql")
     monkeypatch.setenv("POSTGRES_USER", "fleet")
     env = sandbox.kart_env(allow_db=False)
@@ -231,7 +257,7 @@ def test_kart_env_default_excludes_pg_vars(monkeypatch):
     assert "POSTGRES_USER" not in env
 
 
-def test_kart_env_allow_db_includes_pg_vars(monkeypatch):
+def test_kart_env_allow_db_includes_pg_vars(monkeypatch, vendored_default):
     monkeypatch.setenv("PGHOST", "/run/postgresql")
     monkeypatch.setenv("POSTGRES_USER", "fleet")
     env = sandbox.kart_env(allow_db=True)
@@ -239,7 +265,7 @@ def test_kart_env_allow_db_includes_pg_vars(monkeypatch):
     assert env["POSTGRES_USER"] == "fleet"
 
 
-def test_build_bwrap_argv_db_socket_only_when_allow_db(monkeypatch):
+def test_build_bwrap_argv_db_socket_only_when_allow_db(monkeypatch, vendored_default):
     real_exists = sandbox.Path.exists
 
     def exists(self):
