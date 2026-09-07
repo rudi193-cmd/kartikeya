@@ -53,6 +53,15 @@ _NO_CONFIG_SOURCE = "<none>"
 # Credential-bearing env prefixes (GAP-B). Only passed into the sandbox when a task
 # opts into network (allow_net) — a no-network task receives zero credentials.
 # Overridable via the "credential_env_prefixes" key in kart-sandbox.json.
+#: Env prefixes `allow_db` adds. A config that already lists these in
+#: `env_prefixes` hands them to every task, which is what _warn_if_db_gate_defeated
+#: exists to catch.
+_DEFAULT_DB_ENV_PREFIXES = ("PG", "POSTGRES")
+
+#: psycopg2's default socket directory. Bound only under allow_db (build_bwrap_argv);
+#: a config listing it in an unconditional bind list undoes that.
+_PG_SOCKET_DIR = "/var/run/postgresql"
+
 _DEFAULT_CREDENTIAL_PREFIXES = (
     "TWINE_", "PYPI_", "ANTHROPIC_", "OPENROUTER_", "GROQ_", "GITHUB_",
     "NPM_", "HUGGINGFACE_", "HF_", "OPENAI_", "AWS_", "DISCORD_",
@@ -207,6 +216,55 @@ def _render(path_template: str, ctx: dict[str, str]) -> str:
     return os.path.expanduser(out)
 
 
+#: Sources already warned about, so a per-task worker does not repeat itself
+#: once per task forever. Keyed by resolved config path.
+_DB_GATE_WARNED: set[str] = set()
+
+_UNCONDITIONAL_BIND_KEYS = (
+    "bind_read_only", "bind_read_write", "bind_try", "bind_try_read_only",
+)
+
+
+def _warn_if_db_gate_defeated(cfg: dict, source: str) -> list[str]:
+    """Say so when a mount policy makes ``allow_db`` unable to gate anything.
+
+    `build_bwrap_argv` binds the Postgres socket only under ``allow_db``, and
+    `kart_env` adds the DB env prefixes only under ``allow_db``. A config can undo
+    both without looking wrong: put ``PG``/``POSTGRES`` in ``env_prefixes`` (which
+    is unconditional) instead of leaving them to ``db_env_prefixes``, or list the
+    socket in one of the unconditional bind lists. Either way every task gets the
+    database and the ``# allow_db`` directive becomes decoration.
+
+    Same posture as the read-only/read-write promotion warning above: never
+    silent, and name the entry to move. Returns the reasons, so callers and tests
+    can assert on them rather than scraping the log.
+    """
+    reasons: list[str] = []
+    db_prefixes = tuple(cfg.get("db_env_prefixes") or _DEFAULT_DB_ENV_PREFIXES)
+    env_prefixes = tuple(cfg.get("env_prefixes") or ())
+    leaked = [p for p in db_prefixes if p in env_prefixes]
+    if leaked:
+        reasons.append(
+            f"env_prefixes already contains {', '.join(leaked)} — DB credentials "
+            f"reach every task whether or not it opted in. Move them to db_env_prefixes."
+        )
+    bound = []
+    for key in _UNCONDITIONAL_BIND_KEYS:
+        for raw in cfg.get(key) or []:
+            if _PG_SOCKET_DIR in str(raw):
+                bound.append(f"{key}: {raw}")
+    if bound:
+        reasons.append(
+            f"{_PG_SOCKET_DIR} is bound unconditionally ({'; '.join(bound)}) — the "
+            f"socket is present for every task. Remove the entry; allow_db binds it."
+        )
+    if reasons and source not in _DB_GATE_WARNED:
+        _DB_GATE_WARNED.add(source)
+        for reason in reasons:
+            _log.warning("kart-sandbox: allow_db cannot gate anything — %s (%s)", reason, source)
+    return reasons
+
+
 def resolve_sandbox_config(root: Path | None = None) -> tuple[dict, str]:
     """Resolve the bwrap mount policy AND report which candidate supplied it.
 
@@ -241,6 +299,7 @@ def resolve_sandbox_config(root: Path | None = None) -> tuple[dict, str]:
                 cfg = json.loads(path.read_text(encoding="utf-8"))
             except Exception:
                 continue
+            _warn_if_db_gate_defeated(cfg, str(path))
             return cfg, str(path)
     return {}, _NO_CONFIG_SOURCE
 
@@ -578,7 +637,7 @@ def build_bwrap_argv(
     # task opted into the local Postgres lane (allow_db) — default tasks must not
     # reach the production socket.
     if allow_db:
-        _pg_sock = Path("/var/run/postgresql")
+        _pg_sock = Path(_PG_SOCKET_DIR)
         if _pg_sock.exists():
             args += ["--bind", str(_pg_sock.resolve()), str(_pg_sock)]
 
@@ -696,7 +755,7 @@ def kart_env(
     repo = root or willow_repo_root()
     cfg = load_sandbox_config(repo)
     prefixes = tuple(cfg.get("env_prefixes") or ("WILLOW_", "GROVE_", "OLLAMA_", "GIT_", "ANTHROPIC_", "GROQ_"))
-    db_prefixes = tuple(cfg.get("db_env_prefixes") or ("PG", "POSTGRES"))
+    db_prefixes = tuple(cfg.get("db_env_prefixes") or _DEFAULT_DB_ENV_PREFIXES)
     if allow_db:
         prefixes = prefixes + db_prefixes
     # GAP-B: credential-bearing env vars only reach the sandbox on a network-opted
