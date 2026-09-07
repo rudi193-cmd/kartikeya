@@ -163,19 +163,35 @@ def run_worker(
             with lock:
                 in_flight.discard(row.task_id)
 
+    # Whether the most recently ATTEMPTED claim succeeded. The heartbeat
+    # reports this instead of a hardcoded True, because "still ticking" and
+    # "able to take work" are different claims and only the second is worth
+    # publishing. A worker whose every claim raises is not healthy: after the
+    # 2026-09-05 Postgres restart one failed ~31,000 consecutive claims over 43
+    # hours with a dead connection, while its heartbeat read tick_ok=True the
+    # whole time and the operator had no signal distinguishing that from an
+    # idle lane. Initialised True so a worker that has not yet tried to claim
+    # does not accuse itself.
+    last_claim_ok = True
     try:
         while True:
-            on_heartbeat(lane=lane, tick_ok=True)
+            on_heartbeat(lane=lane, tick_ok=last_claim_ok)
             _maybe_reap_and_prune(queue)
             with lock:
                 free = max_workers - len(in_flight)
             claimed: list[TaskRow] = []
+            # free == 0 deliberately leaves last_claim_ok alone: every slot is
+            # busy so no claim is attempted, and a saturated worker is busy,
+            # not failing. Resetting it to True here would also paper over a
+            # failing claim the moment the worker filled up.
             if free > 0:
                 try:
                     claimed = queue.claim_pending(agent, free, lane=lane)
+                    last_claim_ok = True
                 except Exception as e:
                     logger.error("claim_pending failed: %s", e)
                     claimed = []
+                    last_claim_ok = False
                 for row in claimed:
                     with lock:
                         in_flight.add(row.task_id)
