@@ -276,3 +276,81 @@ def test_worker_threads_network_authorizer_to_executor(tmp_path, monkeypatch):
     )
     assert q.get("NET-WORKER")["status"] == "completed"
     assert seen == [("NET-WORKER", '{"signed":true}')]
+
+
+# ── heartbeat honesty ──────────────────────────────────────────────────────
+#
+# "Still ticking" and "able to take work" are different claims. The loop used
+# to publish tick_ok=True unconditionally, so a worker that failed every claim
+# looked identical to an idle one -- for 43 hours, after the 2026-09-05
+# Postgres restart left it holding a dead connection.
+
+class _StopTicking(Exception):
+    """Escape hatch: raised from the heartbeat to end the daemon loop."""
+
+
+class _RaisingQueue:
+    """Claims always fail, the way they do against a closed connection."""
+
+    def claim_pending(self, agent, limit, lane=None):
+        raise RuntimeError("connection already closed")
+
+
+class _RecoveringQueue:
+    """Fails `failures` times, then starts answering."""
+
+    def __init__(self, failures):
+        self.failures = failures
+        self.calls = 0
+
+    def claim_pending(self, agent, limit, lane=None):
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise RuntimeError("connection already closed")
+        return []
+
+
+def _run_until(queue, ticks, **kw):
+    """Drive the daemon loop for `ticks` heartbeats, returning the tick_ok seen."""
+    seen = []
+
+    def beat(*, lane=None, tick_ok=None):
+        seen.append(tick_ok)
+        if len(seen) >= ticks:
+            raise _StopTicking
+
+    with pytest.raises(_StopTicking):
+        run_worker(queue, on_heartbeat=beat, interval=0, **kw)
+    return seen
+
+
+def test_a_worker_that_cannot_claim_stops_reporting_healthy():
+    assert _run_until(_RaisingQueue(), 3) == [True, False, False]
+
+
+def test_a_healthy_queue_keeps_reporting_healthy(tmp_path):
+    assert _run_until(_queue(tmp_path), 3) == [True, True, True]
+
+
+def test_recovery_flips_the_heartbeat_back():
+    """The self-healing case: the database returns and the next tick says so."""
+    assert _run_until(_RecoveringQueue(failures=1), 4) == [True, False, True, True]
+
+
+def test_a_saturated_worker_is_busy_not_failing(tmp_path):
+    """free == 0 attempts no claim, so it must not reset the flag either way."""
+    import threading
+
+    release = threading.Event()
+    q = _queue(tmp_path)
+    q.submit("S1", '{"type":"blocker"}')
+
+    def handler(row, *, timeout=None, context="poll"):
+        release.wait(5)
+        return "completed", {}
+
+    seen = _run_until(q, 4, slots=1, handlers={"blocker": handler})
+    release.set()
+
+    # tick 1 claims S1 and fills the only slot; later ticks find free == 0.
+    assert seen == [True, True, True, True]
