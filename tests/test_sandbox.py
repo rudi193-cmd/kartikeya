@@ -4,6 +4,7 @@ Not the full bwrap execution suite (carried next) — these pin the parts the
 decoupling touched: config resolution order, and the network-directive contract
 that willow-mcp's B-21 strip depends on.
 """
+import json
 import sys
 from pathlib import Path
 
@@ -443,3 +444,70 @@ def test_read_write_promotion_of_a_read_only_path_is_logged(tmp_path, monkeypatc
     assert mounts[str(repo)] is False, "rw still wins — behaviour unchanged"
     assert any("promoted to read-write" in r.getMessage() for r in caplog.records), \
         "the promotion must be reported"
+
+
+# ── allow_db gate integrity ────────────────────────────────────────────────
+
+def _cfg(tmp_path, monkeypatch, **over):
+    base = {"env_prefixes": ["WILLOW_"], "bind_read_only": ["/usr"], "bind_read_write": []}
+    base.update(over)
+    path = tmp_path / "kart-sandbox.json"
+    path.write_text(json.dumps(base))
+    monkeypatch.setenv("KART_SANDBOX_CONFIG", str(path))
+    sandbox._DB_GATE_WARNED.discard(str(path))
+    return path
+
+
+def test_a_sane_config_warns_about_nothing(tmp_path, monkeypatch):
+    _cfg(tmp_path, monkeypatch)
+    cfg, source = sandbox.resolve_sandbox_config()
+    assert sandbox._warn_if_db_gate_defeated(cfg, source) == []
+
+
+def test_db_prefixes_in_env_prefixes_are_reported(tmp_path, monkeypatch):
+    """The live fleet config did exactly this, so allow_db added nothing."""
+    _cfg(tmp_path, monkeypatch, env_prefixes=["WILLOW_", "PG", "POSTGRES"])
+    cfg, source = sandbox.resolve_sandbox_config()
+    reasons = sandbox._warn_if_db_gate_defeated(cfg, source)
+    assert len(reasons) == 1
+    assert "PG, POSTGRES" in reasons[0] and "db_env_prefixes" in reasons[0]
+
+
+def test_an_unconditional_socket_bind_is_reported(tmp_path, monkeypatch):
+    _cfg(tmp_path, monkeypatch, bind_read_write=["/var/run/postgresql"])
+    cfg, source = sandbox.resolve_sandbox_config()
+    reasons = sandbox._warn_if_db_gate_defeated(cfg, source)
+    assert len(reasons) == 1
+    assert "/var/run/postgresql" in reasons[0] and "allow_db binds it" in reasons[0]
+
+
+def test_both_halves_are_reported_separately(tmp_path, monkeypatch):
+    _cfg(tmp_path, monkeypatch,
+         env_prefixes=["PG"], bind_try=["/var/run/postgresql"])
+    cfg, source = sandbox.resolve_sandbox_config()
+    assert len(sandbox._warn_if_db_gate_defeated(cfg, source)) == 2
+
+
+def test_a_custom_db_env_prefix_list_is_honoured(tmp_path, monkeypatch):
+    """The check follows the config's own vocabulary, not a hardcoded pair."""
+    _cfg(tmp_path, monkeypatch,
+         env_prefixes=["MYDB_"], db_env_prefixes=["MYDB_"])
+    cfg, source = sandbox.resolve_sandbox_config()
+    assert "MYDB_" in sandbox._warn_if_db_gate_defeated(cfg, source)[0]
+
+
+def test_the_warning_is_emitted_once_per_source(tmp_path, monkeypatch, caplog):
+    """A worker resolves the config per task; the message is static."""
+    path = _cfg(tmp_path, monkeypatch, env_prefixes=["PG"])
+    with caplog.at_level("WARNING", logger="kart.sandbox"):
+        for _ in range(3):
+            sandbox.resolve_sandbox_config()
+    assert sum("allow_db cannot gate" in r.message for r in caplog.records) == 1
+    assert str(path) in sandbox._DB_GATE_WARNED
+
+
+def test_the_gate_still_works_on_a_clean_config(tmp_path, monkeypatch, vendored_default):
+    """The guard reports; it must not change behaviour."""
+    monkeypatch.setenv("PGHOST", "/run/postgresql")
+    assert "PGHOST" not in sandbox.kart_env(allow_db=False)
+    assert sandbox.kart_env(allow_db=True)["PGHOST"] == "/run/postgresql"
