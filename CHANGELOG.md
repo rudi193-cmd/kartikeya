@@ -36,7 +36,6 @@ rather than cutting one of their own — see `release-please-config.json`.
 
 ### Fixed
 
-* **worker:** report claim failures in the heartbeat ([e8e2842](https://github.com/willow-memory/kartikeya/commit/e8e2842f345924adcf0bd3f1c91a635cbb753dc6))
 * **worker:** report claim failures in the heartbeat ([d1c51b6](https://github.com/willow-memory/kartikeya/commit/d1c51b6820dafb969cba3897bc03856381007533))
 
 ## [0.0.12](https://github.com/willow-memory/kartikeya/compare/v0.0.11...v0.0.12) (2026-09-02)
