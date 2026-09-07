@@ -36,7 +36,6 @@ rather than cutting one of their own — see `release-please-config.json`.
 
 ### Added
 
-* **api:** declare the sandbox seam public ([c38038b](https://github.com/willow-memory/kartikeya/commit/c38038b9f0f0fab4f3e2c0cec68ead012ea23150))
 * **api:** declare the sandbox seam public ([0a42ac9](https://github.com/willow-memory/kartikeya/commit/0a42ac9881d5f2625d0131b945ad20f5a99296cc))
 
 ## [0.0.13](https://github.com/willow-memory/kartikeya/compare/v0.0.12...v0.0.13) (2026-09-07)
