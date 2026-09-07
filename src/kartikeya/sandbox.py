@@ -4,6 +4,18 @@ kart_sandbox.py — unified bwrap sandbox for Kart execution paths.
 Used by: core/kart_execute.py (daemon + poll), sap kart_task_run fallback
 
 Mount policy: willow/fylgja/config/kart-sandbox.json (+ dynamic worktree discovery).
+
+Public, and promised to callers outside this package — see the surface list in
+`kartikeya/__init__.py` and `tests/test_public_surface.py`:
+
+    resolve_sandbox_config, is_vendored_default,
+    collect_mcp_trust_ro_overlays, ensure_work_root
+
+Everything else here is internal and may change without a major. That split is
+not cosmetic: willow-mcp imports the first two at module scope and refuses to
+start a worker without them, and pins the other two from its own test suite.
+Until now this module was undeclared in either direction, so a consumer depended
+on names this package had never promised.
 """
 from __future__ import annotations
 
