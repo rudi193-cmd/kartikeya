@@ -31,6 +31,13 @@ Note what release-please will not list once it takes over: `docs:`, `test:`,
 `ci:` and `chore:` are hidden. Those commits ship inside the next real release
 rather than cutting one of their own — see `release-please-config.json`.
 
+## [0.2.0](https://github.com/willow-memory/kartikeya/compare/v0.1.0...v0.2.0) (2026-09-07)
+
+
+### Added
+
+* **sandbox:** say so when a config makes allow_db unable to gate ([ca1fd84](https://github.com/willow-memory/kartikeya/commit/ca1fd845e9754c096f822e24e114f245ee6e9c63))
+
 ## [0.1.0](https://github.com/willow-memory/kartikeya/compare/v0.0.13...v0.1.0) (2026-09-07)
 
 
