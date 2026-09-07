@@ -6,6 +6,13 @@ Public surface:
 - Task security gate: `check_kart_task` (hybrid scan over task text).
 - Execution: `execute_task_row`, `drain_claimed_tasks`, `run_shell_task`.
 - Worker loop: `run_worker`.
+- Sandbox seam: `sandbox.resolve_sandbox_config`, `sandbox.is_vendored_default`,
+  `sandbox.collect_mcp_trust_ro_overlays`, `sandbox.ensure_work_root`. Imported by
+  path (`from kartikeya.sandbox import ...`), not re-exported here — adding them to
+  `__all__` would invent a top-level spelling nobody calls. They are listed because
+  a consumer already holds them: willow-mcp's `worker.py` refuses to start when the
+  first two are absent, and its B-33 and B-65 floors exist for the other two. The
+  rest of `sandbox` is internal.
 """
 from __future__ import annotations
 
