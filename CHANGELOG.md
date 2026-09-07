@@ -31,6 +31,13 @@ Note what release-please will not list once it takes over: `docs:`, `test:`,
 `ci:` and `chore:` are hidden. Those commits ship inside the next real release
 rather than cutting one of their own — see `release-please-config.json`.
 
+## [0.1.0](https://github.com/willow-memory/kartikeya/compare/v0.0.13...v0.1.0) (2026-09-07)
+
+
+### Added
+
+* **api:** declare the sandbox seam public ([0a42ac9](https://github.com/willow-memory/kartikeya/commit/0a42ac9881d5f2625d0131b945ad20f5a99296cc))
+
 ## [0.0.13](https://github.com/willow-memory/kartikeya/compare/v0.0.12...v0.0.13) (2026-09-07)
 
 
